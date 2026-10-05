@@ -16,7 +16,8 @@ export function clearDraft() {
   localStorage.removeItem(draftKey);
 }
 
-const linkKeys = [['flowerId', 'f'], ['meaningId', 'm'], ['content', 'c'], ['songTitle', 't'], ['artist', 'a'], ['link', 'l']];
+const linkKeys = [['flowerId', 'f'], ['meaningId', 'm'], ['content', 'c'], ['songTitle', 't'], ['artist', 'a'], ['link', 'l'], ['photo', 'p']];
+const safePhoto = (value) => (/^data:image\/(webp|jpeg|png);base64,[a-z0-9+/=]+$/i.test(value) ? value : '');
 
 function toBase64Url(bytes) {
   let binary = '';
@@ -56,7 +57,10 @@ export async function decodeBouquet(code) {
       recipientName: String(compact.r || ''),
       creatorName: String(compact.c || ''),
       note: String(compact.n || ''),
-      items: compact.i.slice(0, 12).map((item) => Object.fromEntries(linkKeys.map(([key, short]) => [key, String(item?.[short] ?? '')]))),
+      items: compact.i.slice(0, 12).map((item) => {
+        const decoded = Object.fromEntries(linkKeys.map(([key, short]) => [key, String(item?.[short] ?? '')]));
+        return { ...decoded, photo: safePhoto(decoded.photo) };
+      }),
     };
   } catch {
     throw new Error('This bouquet link looks incomplete. Could you ask for the link again?');

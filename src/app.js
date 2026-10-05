@@ -1,6 +1,6 @@
 import { bouquetSvg, flowerThumbnail, safeText } from './bouquet.js?v=7';
 import { flowers, getFlower, getMeaning, meanings } from './data/flowers.js?v=5';
-import { clearDraft, decodeBouquet, encodeBouquet, getBouquet, loadDraft, saveDraft } from './storage.js?v=2';
+import { clearDraft, decodeBouquet, encodeBouquet, getBouquet, loadDraft, saveDraft } from './storage.js?v=3';
 
 const app = document.querySelector('#app');
 const pathMatch = location.pathname.match(/^\/bouquet\/([a-z0-9]+)$/i);
@@ -114,7 +114,7 @@ function meaningPicker() {
   return `${iconButton('Back to flowers', 'back-to-flowers', '←')}
     <div class="tray-heading"><span class="step-mark">2</span><div><h2>What does it hold?</h2><p>${safeText(flower.name)}, with something tucked inside.</p></div></div>
     <div class="meaning-list">
-      ${meanings.filter((meaning) => meaning.kind !== 'photo').map((meaning) => `<button type="button" data-action="pick-meaning" data-value="${meaning.id}"><span>${safeText(meaning.label)}</span><span aria-hidden="true">→</span></button>`).join('')}
+      ${meanings.filter((meaning) => meaning.kind !== 'photo' || state.items.filter((item) => item.photo).length < 2).map((meaning) => `<button type="button" data-action="pick-meaning" data-value="${meaning.id}"><span>${safeText(meaning.label)}</span><span aria-hidden="true">→</span></button>`).join('')}
     </div>`;
 }
 
@@ -126,7 +126,8 @@ function contentFields(meaning) {
       <label>A tiny note <span class="optional">optional</span><textarea name="content" maxlength="280" placeholder="Why this one?"></textarea></label>`;
   }
   if (meaning.kind === 'photo') {
-    return `<label class="photo-drop"><input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif" ${state.draft.photo ? '' : 'required'}><span>${state.draft.photo ? 'Choose a different photo' : 'Choose a photo'}</span></label>
+    return `<label class="photo-drop"><input name="photo" type="file" accept="image/*" ${state.draft.photo ? '' : 'required'}><span>${state.draft.photo ? 'Choose a different photo' : 'Choose a photo'}</span></label>
+      <p class="field-hint">Photos are shrunk to fit inside the bouquet link, so there's room for two per bouquet.</p>
       ${state.draft.photo ? `<img class="photo-preview" src="${state.draft.photo}" alt="Your chosen photo preview">` : ''}
       <label>A note <span class="optional">optional</span><textarea name="content" maxlength="280" placeholder="${safeText(meaning.placeholder)}"></textarea></label>`;
   }
@@ -170,7 +171,7 @@ function shareTray() {
   const whatsappText = encodeURIComponent(`I made a little something for you 🌼\n${url}`);
   return `<div class="send-ready"><p class="eyebrow">Ready to go</p><h2>Send it?</h2><p>The same little bouquet, wherever the link goes.</p>
     <div class="share-actions">
-      <a class="button-primary whatsapp" href="https://wa.me/?text=${whatsappText}" target="_blank" rel="noreferrer"><span aria-hidden="true">↗</span> Send on WhatsApp</a>
+      <a class="button-primary whatsapp" data-action="whatsapp" href="https://wa.me/?text=${whatsappText}" target="_blank" rel="noreferrer"><span aria-hidden="true">↗</span> Send on WhatsApp</a>
       <button class="button-secondary" type="button" data-action="show-email"><span aria-hidden="true">✉</span> Send by email</button>
       <button class="button-secondary" type="button" data-action="copy-link"><span aria-hidden="true">⧉</span> Copy link</button>
     </div>
@@ -331,27 +332,32 @@ function setToast(message) {
   }, 1800);
 }
 
+// Photos travel inside the share link, so they are shrunk to roughly 16 KB each.
 async function compressPhoto(file) {
-  const dataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-  if (file.type === 'image/gif') return dataUrl;
-  const image = await new Promise((resolve, reject) => {
-    const candidate = new Image();
-    candidate.onload = () => resolve(candidate);
-    candidate.onerror = reject;
-    candidate.src = dataUrl;
-  });
-  const max = 1800;
-  const scale = Math.min(1, max / Math.max(image.width, image.height));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(image.width * scale);
-  canvas.height = Math.round(image.height * scale);
-  canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/jpeg', 0.9);
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const candidate = new Image();
+      candidate.onload = () => resolve(candidate);
+      candidate.onerror = reject;
+      candidate.src = objectUrl;
+    });
+    const canvas = document.createElement('canvas');
+    for (const side of [420, 340, 260]) {
+      const scale = Math.min(1, side / Math.max(image.width, image.height));
+      canvas.width = Math.round(image.width * scale);
+      canvas.height = Math.round(image.height * scale);
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.72, 0.6, 0.48]) {
+        let url = canvas.toDataURL('image/webp', quality);
+        if (!url.startsWith('data:image/webp')) url = canvas.toDataURL('image/jpeg', quality);
+        if (url.length <= 22000) return url;
+      }
+    }
+    return canvas.toDataURL('image/jpeg', 0.4);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 app.addEventListener('click', async (event) => {
@@ -383,6 +389,20 @@ app.addEventListener('click', async (event) => {
     state.step = 'resting';
   } else if (action === 'show-email') {
     state.emailOpen = true;
+  } else if (action === 'whatsapp') {
+    const url = shareLink();
+    // wa.me rejects very long messages, so long (photo) links go through the share sheet or clipboard.
+    if (url.length <= 4000) return;
+    event.preventDefault();
+    const text = 'I made a little something for you 🌼';
+    if (navigator.share) {
+      try { await navigator.share({ text, url }); } catch { /* share sheet dismissed */ }
+      return;
+    }
+    await copyText(url);
+    setToast('Link copied. Paste it into WhatsApp.');
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    return;
   } else if (action === 'copy-link') {
     const url = shareLink();
     if (await copyText(url)) setToast('Copied 🌼');
@@ -437,11 +457,16 @@ app.addEventListener('keydown', (event) => {
 app.addEventListener('change', async (event) => {
   if (event.target.name !== 'photo' || !event.target.files?.[0]) return;
   const file = event.target.files[0];
-  if (file.size > 12_000_000) {
-    setToast('Try a photo under 12 MB.');
+  if (file.size > 25_000_000) {
+    setToast('Try a photo under 25 MB.');
     return;
   }
-  state.draft.photo = await compressPhoto(file);
+  try {
+    state.draft.photo = await compressPhoto(file);
+  } catch {
+    setToast('That photo could not be read. Try a JPG or PNG.');
+    return;
+  }
   render();
 });
 
@@ -496,8 +521,15 @@ app.addEventListener('submit', async (event) => {
     const email = String(data.get('email') || '');
     const url = shareLink();
     const subject = encodeURIComponent('A little bouquet for you 🌼');
-    const body = encodeURIComponent(`${state.note || 'I made a little something for you.'}\n\nOpen your bouquet: ${url}\n\nMade with a little thought.`);
-    location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
+    const message = state.note || 'I made a little something for you.';
+    let body = `${message}\n\nOpen your bouquet: ${url}\n\nMade with a little thought.`;
+    // Some mail apps cut off very long mailto links, so photo bouquets paste the link instead.
+    if (body.length > 1800) {
+      await copyText(url);
+      setToast('Link copied. Paste it into your email.');
+      body = `${message}\n\nOpen your bouquet: (paste the link here)\n\nMade with a little thought.`;
+    }
+    location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${encodeURIComponent(body)}`;
   }
 });
 
