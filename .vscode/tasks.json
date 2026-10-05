@@ -1,0 +1,36 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run A Bouquet of Things",
+      "type": "shell",
+      "command": "/Users/komalsingh/.local/node-v24.21.0/bin/node",
+      "args": ["server.mjs"],
+      "options": {
+        "cwd": "/Users/komalsingh/bouquet"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    }
+  ]
+}{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run A Bouquet of Things",
+			"type": "shell",
+			"command": "/Users/komalsingh/.local/node-v24.21.0/bin/node",
+			"args": [
+				"server.mjs"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}
