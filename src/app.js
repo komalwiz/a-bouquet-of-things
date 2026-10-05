@@ -1,25 +1,27 @@
 import { bouquetSvg, flowerThumbnail, safeText } from './bouquet.js?v=7';
 import { flowers, getFlower, getMeaning, meanings } from './data/flowers.js?v=5';
-import { clearDraft, createShortLink, decodeBouquet, encodeBouquet, getBouquet, loadDraft, openShortLink, saveDraft } from './storage.js?v=4';
+import { clearDraft, createShortLink, decodeBouquet, encodeBouquet, getBouquet, openShortLink } from './storage.js?v=5';
 
 const app = document.querySelector('#app');
 const pathMatch = location.pathname.match(/^\/bouquet\/([a-z0-9]+)$/i);
 const hashParams = new URLSearchParams(location.hash.slice(1));
 const linkCode = hashParams.get('b');
 const shortToken = hashParams.get('s');
-const storedDraft = loadDraft();
 let bouquetAudio = null;
+
+// Every visit starts a fresh bouquet; this clears drafts saved by earlier versions of the site.
+clearDraft();
 
 const state = {
   mode: pathMatch || linkCode || shortToken ? 'recipient-loading' : 'creator',
-  step: storedDraft?.items?.length ? 'resting' : 'intro',
-  items: storedDraft?.items || [],
+  step: 'intro',
+  items: [],
   draft: { flowerId: flowers[0].id, meaningId: null, photo: '' },
-  recipientName: storedDraft?.recipientName || '',
-  creatorName: storedDraft?.creatorName || '',
-  note: storedDraft?.note || '',
-  // Holds the link fragment ("s=..." short link or "b=..." long link); older drafts held other formats.
-  shareId: /^[sb]=/.test(storedDraft?.shareId || '') ? storedDraft.shareId : '',
+  recipientName: '',
+  creatorName: '',
+  note: '',
+  // Link fragment: "s=..." short link or "b=..." long link.
+  shareId: '',
   bouquet: null,
   opened: false,
   bloomed: false,
@@ -42,16 +44,6 @@ function button(label, action, className = 'button-primary', extra = '') {
 
 function iconButton(label, action, icon) {
   return `<button class="icon-button" type="button" data-action="${action}" aria-label="${label}" title="${label}">${icon}</button>`;
-}
-
-function persistCreator() {
-  saveDraft({
-    items: state.items,
-    recipientName: state.recipientName,
-    creatorName: state.creatorName,
-    note: state.note,
-    shareId: state.shareId,
-  });
 }
 
 function shareLink() {
@@ -427,12 +419,10 @@ app.addEventListener('click', async (event) => {
     return;
   } else if (action === 'reset') {
     if (!confirm('Start this bouquet over?')) return;
-    clearDraft();
     state.items = [];
     state.shareId = '';
     state.step = 'intro';
   }
-  persistCreator();
   render();
 });
 
@@ -480,7 +470,6 @@ app.addEventListener('submit', async (event) => {
     state.justPlaced = state.items.length - 1;
     state.shareId = '';
     state.step = 'resting';
-    persistCreator();
     render();
   }
 
@@ -503,7 +492,6 @@ app.addEventListener('submit', async (event) => {
       } catch {
         state.shareId = `b=${await encodeBouquet(bouquet)}`;
       }
-      persistCreator();
     } catch (error) {
       state.error = error.message;
     } finally {
@@ -516,6 +504,8 @@ app.addEventListener('submit', async (event) => {
 async function start() {
   // A different bouquet link pasted into an open tab only changes the hash.
   window.addEventListener('hashchange', () => location.reload());
+  // Back/forward can restore a frozen copy of the page; load it fresh instead.
+  window.addEventListener('pageshow', (event) => { if (event.persisted) location.reload(); });
   render();
   if (!pathMatch && !linkCode && !shortToken) return;
   try {

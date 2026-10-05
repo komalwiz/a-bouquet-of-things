@@ -1,17 +1,5 @@
 const draftKey = 'bouquet-of-things-draft';
 
-export function loadDraft() {
-  try {
-    return JSON.parse(localStorage.getItem(draftKey)) || null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveDraft(draft) {
-  localStorage.setItem(draftKey, JSON.stringify(draft));
-}
-
 export function clearDraft() {
   localStorage.removeItem(draftKey);
 }
