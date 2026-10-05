@@ -82,7 +82,9 @@ async function handleApi(request, response, pathname) {
   return false;
 }
 
-async function serveFile(response, pathname) {
+async function serveFile(response, requestPath) {
+  // Relative asset paths resolve under /bouquet/ on legacy recipient links.
+  const pathname = requestPath.replace(/^\/bouquet\/(?=src\/)/, '/');
   const routeToApp = pathname === '/' || pathname.startsWith('/bouquet/');
   const requestedPath = routeToApp ? 'index.html' : pathname.slice(1);
   const filePath = normalize(join(root, requestedPath));

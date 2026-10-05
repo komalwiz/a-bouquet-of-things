@@ -1,21 +1,23 @@
 import { bouquetSvg, flowerThumbnail, safeText } from './bouquet.js?v=7';
 import { flowers, getFlower, getMeaning, meanings } from './data/flowers.js?v=5';
-import { clearDraft, createBouquet, getBouquet, loadDraft, saveDraft } from './storage.js';
+import { clearDraft, decodeBouquet, encodeBouquet, getBouquet, loadDraft, saveDraft } from './storage.js?v=2';
 
 const app = document.querySelector('#app');
 const pathMatch = location.pathname.match(/^\/bouquet\/([a-z0-9]+)$/i);
+const linkCode = new URLSearchParams(location.hash.slice(1)).get('b');
 const storedDraft = loadDraft();
 let bouquetAudio = null;
 
 const state = {
-  mode: pathMatch ? 'recipient-loading' : 'creator',
+  mode: pathMatch || linkCode ? 'recipient-loading' : 'creator',
   step: storedDraft?.items?.length ? 'resting' : 'intro',
   items: storedDraft?.items || [],
   draft: { flowerId: flowers[0].id, meaningId: null, photo: '' },
   recipientName: storedDraft?.recipientName || '',
   creatorName: storedDraft?.creatorName || '',
   note: storedDraft?.note || '',
-  shareId: storedDraft?.shareId || '',
+  // Older drafts held a server id; only link codes (z/j prefix) are shareable now.
+  shareId: /^[zj]/.test(storedDraft?.shareId || '') ? storedDraft.shareId : '',
   bouquet: null,
   opened: false,
   bloomed: false,
@@ -48,6 +50,10 @@ function persistCreator() {
     note: state.note,
     shareId: state.shareId,
   });
+}
+
+function shareLink() {
+  return `${location.origin}${location.pathname}#b=${state.shareId}`;
 }
 
 function bouquetSong() {
@@ -108,7 +114,7 @@ function meaningPicker() {
   return `${iconButton('Back to flowers', 'back-to-flowers', '←')}
     <div class="tray-heading"><span class="step-mark">2</span><div><h2>What does it hold?</h2><p>${safeText(flower.name)}, with something tucked inside.</p></div></div>
     <div class="meaning-list">
-      ${meanings.map((meaning) => `<button type="button" data-action="pick-meaning" data-value="${meaning.id}"><span>${safeText(meaning.label)}</span><span aria-hidden="true">→</span></button>`).join('')}
+      ${meanings.filter((meaning) => meaning.kind !== 'photo').map((meaning) => `<button type="button" data-action="pick-meaning" data-value="${meaning.id}"><span>${safeText(meaning.label)}</span><span aria-hidden="true">→</span></button>`).join('')}
     </div>`;
 }
 
@@ -160,7 +166,7 @@ function shareTray() {
       </form>`;
   }
 
-  const url = `${location.origin}/bouquet/${state.shareId}`;
+  const url = shareLink();
   const whatsappText = encodeURIComponent(`I made a little something for you 🌼\n${url}`);
   return `<div class="send-ready"><p class="eyebrow">Ready to go</p><h2>Send it?</h2><p>The same little bouquet, wherever the link goes.</p>
     <div class="share-actions">
@@ -207,7 +213,7 @@ function renderCreator() {
     creatorName: state.creatorName,
   };
   app.innerHTML = `<div class="paper-noise"></div>
-    <header class="site-header"><a href="/" aria-label="A Bouquet of Things home"><span class="brand-flower">✿</span><span>A Bouquet of Things</span></a>
+    <header class="site-header"><a href="./" aria-label="A Bouquet of Things home"><span class="brand-flower">✿</span><span>A Bouquet of Things</span></a>
       ${state.items.length ? iconButton('Start over', 'reset', '↺') : ''}
     </header>
     <main class="creator-shell ${state.step === 'intro' ? 'is-intro' : ''}">
@@ -242,7 +248,7 @@ function renderRecipient() {
     return;
   }
   if (state.mode === 'recipient-error') {
-    app.innerHTML = `<main class="error-view"><p class="eyebrow">A Bouquet of Things</p><h1>Oh. This one wandered off.</h1><p>${safeText(state.error)}</p><a class="button-primary" href="/">Make a new bouquet</a></main>`;
+    app.innerHTML = `<main class="error-view"><p class="eyebrow">A Bouquet of Things</p><h1>Oh. This one wandered off.</h1><p>${safeText(state.error)}</p><a class="button-primary" href="./">Make a new bouquet</a></main>`;
     return;
   }
 
@@ -378,7 +384,7 @@ app.addEventListener('click', async (event) => {
   } else if (action === 'show-email') {
     state.emailOpen = true;
   } else if (action === 'copy-link') {
-    const url = `${location.origin}/bouquet/${state.shareId}`;
+    const url = shareLink();
     if (await copyText(url)) setToast('Copied 🌼');
     else window.prompt('Copy this link:', url);
     return;
@@ -471,7 +477,7 @@ app.addEventListener('submit', async (event) => {
     state.error = '';
     render();
     try {
-      state.shareId = await createBouquet({
+      state.shareId = await encodeBouquet({
         items: state.items,
         recipientName: state.recipientName,
         creatorName: state.creatorName,
@@ -488,7 +494,7 @@ app.addEventListener('submit', async (event) => {
 
   if (form.dataset.form === 'send-email') {
     const email = String(data.get('email') || '');
-    const url = `${location.origin}/bouquet/${state.shareId}`;
+    const url = shareLink();
     const subject = encodeURIComponent('A little bouquet for you 🌼');
     const body = encodeURIComponent(`${state.note || 'I made a little something for you.'}\n\nOpen your bouquet: ${url}\n\nMade with a little thought.`);
     location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
@@ -496,10 +502,12 @@ app.addEventListener('submit', async (event) => {
 });
 
 async function start() {
+  // A different bouquet link pasted into an open tab only changes the hash.
+  window.addEventListener('hashchange', () => location.reload());
   render();
-  if (!pathMatch) return;
+  if (!pathMatch && !linkCode) return;
   try {
-    state.bouquet = await getBouquet(pathMatch[1]);
+    state.bouquet = linkCode ? await decodeBouquet(linkCode) : await getBouquet(pathMatch[1]);
     state.mode = 'recipient';
   } catch (error) {
     state.mode = 'recipient-error';

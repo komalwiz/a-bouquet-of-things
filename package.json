@@ -6,6 +6,6 @@
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check src/app.js && node --check src/bouquet.js && node --check src/data/flowers.js && node --check src/storage.js && node --check api/_store.js && node --check api/bouquets.js && node --check 'api/bouquets/[id].js'"
+    "check": "node --check server.mjs && node --check src/app.js && node --check src/bouquet.js && node --check src/data/flowers.js && node --check src/storage.js"
   }
 }

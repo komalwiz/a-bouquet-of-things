@@ -1,3 +1,0 @@
-{
-  "rewrites": [{ "source": "/bouquet/:id", "destination": "/index.html" }]
-}
