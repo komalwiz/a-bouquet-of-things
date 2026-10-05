@@ -73,3 +73,51 @@ export async function getBouquet(id) {
   if (!response.ok) throw new Error(result.error || 'This bouquet could not be found.');
   return result;
 }
+
+const pasteHost = 'https://dpaste.com';
+const oneDay = 24 * 60 * 60 * 1000;
+const wiltedMessage = 'This bouquet has wilted. Bouquets only last a day, so ask for a fresh one?';
+const incompleteMessage = 'This bouquet link looks incomplete. Could you ask for the link again?';
+
+// The bouquet is encrypted before upload; the key lives only in the link, so dpaste stores unreadable data.
+export async function createShortLink(bouquet) {
+  const code = await encodeBouquet(bouquet);
+  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 128 }, true, ['encrypt']);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plain = new TextEncoder().encode(JSON.stringify({ code, expiresAt: Date.now() + oneDay }));
+  const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain));
+  const payload = new Uint8Array(iv.length + sealed.length);
+  payload.set(iv);
+  payload.set(sealed, iv.length);
+
+  const response = await fetch(`${pasteHost}/api/v2/`, {
+    method: 'POST',
+    body: new URLSearchParams({ content: toBase64Url(payload), expiry_days: '1', syntax: 'text' }),
+  });
+  if (!response.ok) throw new Error('Could not shorten this bouquet.');
+  const id = (await response.text()).trim().split('/').pop();
+  if (!/^[A-Za-z0-9]+$/.test(id)) throw new Error('Could not shorten this bouquet.');
+  const rawKey = new Uint8Array(await crypto.subtle.exportKey('raw', key));
+  return `${id}.${toBase64Url(rawKey)}`;
+}
+
+export async function openShortLink(token) {
+  const [id, keyText] = token.split('.');
+  if (!/^[A-Za-z0-9]+$/.test(id || '') || !keyText) throw new Error(incompleteMessage);
+
+  const response = await fetch(`${pasteHost}/${id}.txt`);
+  if (response.status === 404 || response.status === 410) throw new Error(wiltedMessage);
+  if (!response.ok) throw new Error('This bouquet could not be reached. Try again in a moment?');
+
+  let opened;
+  try {
+    const payload = fromBase64Url((await response.text()).trim());
+    const key = await crypto.subtle.importKey('raw', fromBase64Url(keyText), 'AES-GCM', false, ['decrypt']);
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: payload.slice(0, 12) }, key, payload.slice(12));
+    opened = JSON.parse(new TextDecoder().decode(plain));
+  } catch {
+    throw new Error(incompleteMessage);
+  }
+  if (!(Number(opened.expiresAt) > Date.now())) throw new Error(wiltedMessage);
+  return { ...(await decodeBouquet(String(opened.code))), expiresAt: Number(opened.expiresAt) };
+}

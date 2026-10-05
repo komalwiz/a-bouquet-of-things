@@ -374,6 +374,8 @@ textarea { min-height: 82px; resize: vertical; }
 .send-ready h2 { margin-bottom: 4px; font-size: 2.4rem; }
 .send-ready > p:not(.eyebrow) { color: var(--muted); }
 .whatsapp { background: #1f7a3a; color: #fffaf0; }
+.share-preview { margin: 0 0 16px; padding: 14px 16px; border: 1.5px dashed var(--line); border-radius: 14px; background: #fff; font-size: .9rem; line-height: 1.5; overflow-wrap: anywhere; }
+.wilt-note { display: inline-block; padding: 5px 12px; border-radius: 999px; background: var(--yellow); color: var(--ink) !important; font-size: .8rem !important; font-weight: 600; }
 .email-postcard {
   display: none;
   position: relative;
@@ -564,7 +566,7 @@ textarea { min-height: 82px; resize: vertical; }
   .bouquet-frame { width: min(48vw, 580px); margin: -100px auto -35px; }
   .maker-tray { min-height: 100vh; max-height: 100vh; padding: 110px clamp(28px, 4vw, 68px) 40px; border-top: 0; border-left: 1.5px solid var(--line); display: flex; flex-direction: column; justify-content: center; }
   .flower-picker { grid-template-columns: repeat(5, 1fr); }
-  .resting-actions, .share-actions { grid-template-columns: 1fr 1fr; }
+  .resting-actions { grid-template-columns: 1fr 1fr; }
   .share-actions .whatsapp { grid-column: 1 / -1; }
   .recipient-gate { grid-template-columns: 42% 58%; grid-template-rows: auto 1fr; align-items: center; text-align: left; padding: 32px 6vw; }
   .recipient-gate > .eyebrow { grid-column: 1 / -1; align-self: start; }

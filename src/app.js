@@ -1,23 +1,25 @@
 import { bouquetSvg, flowerThumbnail, safeText } from './bouquet.js?v=7';
 import { flowers, getFlower, getMeaning, meanings } from './data/flowers.js?v=5';
-import { clearDraft, decodeBouquet, encodeBouquet, getBouquet, loadDraft, saveDraft } from './storage.js?v=3';
+import { clearDraft, createShortLink, decodeBouquet, encodeBouquet, getBouquet, loadDraft, openShortLink, saveDraft } from './storage.js?v=4';
 
 const app = document.querySelector('#app');
 const pathMatch = location.pathname.match(/^\/bouquet\/([a-z0-9]+)$/i);
-const linkCode = new URLSearchParams(location.hash.slice(1)).get('b');
+const hashParams = new URLSearchParams(location.hash.slice(1));
+const linkCode = hashParams.get('b');
+const shortToken = hashParams.get('s');
 const storedDraft = loadDraft();
 let bouquetAudio = null;
 
 const state = {
-  mode: pathMatch || linkCode ? 'recipient-loading' : 'creator',
+  mode: pathMatch || linkCode || shortToken ? 'recipient-loading' : 'creator',
   step: storedDraft?.items?.length ? 'resting' : 'intro',
   items: storedDraft?.items || [],
   draft: { flowerId: flowers[0].id, meaningId: null, photo: '' },
   recipientName: storedDraft?.recipientName || '',
   creatorName: storedDraft?.creatorName || '',
   note: storedDraft?.note || '',
-  // Older drafts held a server id; only link codes (z/j prefix) are shareable now.
-  shareId: /^[zj]/.test(storedDraft?.shareId || '') ? storedDraft.shareId : '',
+  // Holds the link fragment ("s=..." short link or "b=..." long link); older drafts held other formats.
+  shareId: /^[sb]=/.test(storedDraft?.shareId || '') ? storedDraft.shareId : '',
   bouquet: null,
   opened: false,
   bloomed: false,
@@ -53,7 +55,13 @@ function persistCreator() {
 }
 
 function shareLink() {
-  return `${location.origin}${location.pathname}#b=${state.shareId}`;
+  return `${location.origin}${location.pathname}#${state.shareId}`;
+}
+
+function shareMessage() {
+  const sender = state.creatorName || 'Someone';
+  const expiry = state.shareId.startsWith('s=') ? "\nView it before it goes, it's only valid for 1 day." : '';
+  return `${sender} created a bouquet for you 🌼${expiry}\n${shareLink()}`;
 }
 
 function bouquetSong() {
@@ -160,26 +168,18 @@ function shareTray() {
       <div class="tray-heading"><span class="step-mark">✦</span><div><h2>Who is it for?</h2><p>Just enough for the little note on the wrapping.</p></div></div>
       <form class="share-details" data-form="save-bouquet">
         <div class="field-pair"><label>Their name <span class="optional">optional</span><input name="recipientName" maxlength="60" value="${safeText(state.recipientName)}" placeholder="Sam"></label>
-        <label>Your name <span class="optional">optional</span><input name="creatorName" maxlength="60" value="${safeText(state.creatorName)}" placeholder="Alex"></label></div>
+        <label>Your name <span class="optional">so they know it's from you</span><input name="creatorName" maxlength="60" value="${safeText(state.creatorName)}" placeholder="Alex"></label></div>
         <label>A note on the wrapping <span class="optional">optional</span><textarea name="note" maxlength="180" placeholder="I made a little something for you.">${safeText(state.note)}</textarea></label>
         ${state.error ? `<p class="form-error" role="alert">${safeText(state.error)}</p>` : ''}
         <button class="button-primary" type="submit" ${state.busy ? 'disabled' : ''}>${state.busy ? 'Tying the ribbon…' : 'Make the link'}</button>
       </form>`;
   }
 
-  const url = shareLink();
-  const whatsappText = encodeURIComponent(`I made a little something for you 🌼\n${url}`);
-  return `<div class="send-ready"><p class="eyebrow">Ready to go</p><h2>Send it?</h2><p>The same little bouquet, wherever the link goes.</p>
+  return `<div class="send-ready"><p class="eyebrow">Ready to go</p><h2>Send it?</h2><p>Copy the link and send it however you like.</p>
+    <div class="share-preview" aria-label="What gets copied">${safeText(shareMessage()).replaceAll('\n', '<br>')}</div>
     <div class="share-actions">
-      <a class="button-primary whatsapp" data-action="whatsapp" href="https://wa.me/?text=${whatsappText}" target="_blank" rel="noreferrer"><span aria-hidden="true">↗</span> Send on WhatsApp</a>
-      <button class="button-secondary" type="button" data-action="show-email"><span aria-hidden="true">✉</span> Send by email</button>
-      <button class="button-secondary" type="button" data-action="copy-link"><span aria-hidden="true">⧉</span> Copy link</button>
+      <button class="button-primary" type="button" data-action="copy-link"><span aria-hidden="true">⧉</span> Copy link</button>
     </div>
-    <form class="email-postcard ${state.emailOpen ? 'is-open' : ''}" data-form="send-email">
-      <div class="postcard-stamp">🌼</div><p class="mini-label">A tiny digital postcard</p>
-      <label>Email address<input type="email" name="email" required placeholder="friend@example.com"></label>
-      <button class="button-small" type="submit">Open email</button>
-    </form>
     <div class="after-share"><button type="button" data-action="print">Print this bouquet</button><span aria-hidden="true">·</span><button type="button" data-action="add-after-share">Add one more</button></div>
   </div>`;
 }
@@ -249,7 +249,7 @@ function renderRecipient() {
     return;
   }
   if (state.mode === 'recipient-error') {
-    app.innerHTML = `<main class="error-view"><p class="eyebrow">A Bouquet of Things</p><h1>Oh. This one wandered off.</h1><p>${safeText(state.error)}</p><a class="button-primary" href="./">Make a new bouquet</a></main>`;
+    app.innerHTML = `<main class="error-view"><p class="eyebrow">A Bouquet of Things</p><h1>${/wilted/.test(state.error) ? 'This one has wilted.' : 'Oh. This one wandered off.'}</h1><p>${safeText(state.error)}</p><a class="button-primary" href="./">Make a new bouquet</a></main>`;
     return;
   }
 
@@ -260,6 +260,7 @@ function renderRecipient() {
       <div class="closed-bouquet">${bouquetSvg(bouquet.items)}</div>
       <div class="gate-copy"><h1>Someone made<br>something <em>for you</em>.</h1>${bouquet.note ? `<p>“${safeText(bouquet.note)}”</p>` : ''}
       <p class="discovery-copy">Every flower is holding a memory, song, or little note. Open the bouquet, then tap each one to unlock it.</p>
+      ${bouquet.expiresAt ? `<p class="wilt-note">${wiltText(bouquet.expiresAt)}</p>` : ''}
       ${button('Tap to open your bouquet', 'open-bouquet')}</div>
     </main>${printComposition(bouquet)}`;
     return;
@@ -302,6 +303,11 @@ function openFlower(index) {
 function render() {
   if (state.mode === 'creator') renderCreator();
   else renderRecipient();
+}
+
+function wiltText(expiresAt) {
+  const hours = Math.max(1, Math.round((expiresAt - Date.now()) / 3_600_000));
+  return `This bouquet wilts in about ${hours} ${hours === 1 ? 'hour' : 'hours'}.`;
 }
 
 // Clipboard API only exists on https or localhost; fall back for plain-http network addresses.
@@ -387,26 +393,10 @@ app.addEventListener('click', async (event) => {
     state.step = 'share';
   } else if (action === 'close-share') {
     state.step = 'resting';
-  } else if (action === 'show-email') {
-    state.emailOpen = true;
-  } else if (action === 'whatsapp') {
-    const url = shareLink();
-    // wa.me rejects very long messages, so long (photo) links go through the share sheet or clipboard.
-    if (url.length <= 4000) return;
-    event.preventDefault();
-    const text = 'I made a little something for you 🌼';
-    if (navigator.share) {
-      try { await navigator.share({ text, url }); } catch { /* share sheet dismissed */ }
-      return;
-    }
-    await copyText(url);
-    setToast('Link copied. Paste it into WhatsApp.');
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
-    return;
   } else if (action === 'copy-link') {
-    const url = shareLink();
-    if (await copyText(url)) setToast('Copied 🌼');
-    else window.prompt('Copy this link:', url);
+    const message = shareMessage();
+    if (await copyText(message)) setToast('Copied 🌼');
+    else window.prompt('Copy this message:', message);
     return;
   } else if (action === 'print') {
     window.print();
@@ -502,12 +492,17 @@ app.addEventListener('submit', async (event) => {
     state.error = '';
     render();
     try {
-      state.shareId = await encodeBouquet({
+      const bouquet = {
         items: state.items,
         recipientName: state.recipientName,
         creatorName: state.creatorName,
         note: state.note,
-      });
+      };
+      try {
+        state.shareId = `s=${await createShortLink(bouquet)}`;
+      } catch {
+        state.shareId = `b=${await encodeBouquet(bouquet)}`;
+      }
       persistCreator();
     } catch (error) {
       state.error = error.message;
@@ -516,30 +511,16 @@ app.addEventListener('submit', async (event) => {
       render();
     }
   }
-
-  if (form.dataset.form === 'send-email') {
-    const email = String(data.get('email') || '');
-    const url = shareLink();
-    const subject = encodeURIComponent('A little bouquet for you 🌼');
-    const message = state.note || 'I made a little something for you.';
-    let body = `${message}\n\nOpen your bouquet: ${url}\n\nMade with a little thought.`;
-    // Some mail apps cut off very long mailto links, so photo bouquets paste the link instead.
-    if (body.length > 1800) {
-      await copyText(url);
-      setToast('Link copied. Paste it into your email.');
-      body = `${message}\n\nOpen your bouquet: (paste the link here)\n\nMade with a little thought.`;
-    }
-    location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${encodeURIComponent(body)}`;
-  }
 });
 
 async function start() {
   // A different bouquet link pasted into an open tab only changes the hash.
   window.addEventListener('hashchange', () => location.reload());
   render();
-  if (!pathMatch && !linkCode) return;
+  if (!pathMatch && !linkCode && !shortToken) return;
   try {
-    state.bouquet = linkCode ? await decodeBouquet(linkCode) : await getBouquet(pathMatch[1]);
+    if (shortToken) state.bouquet = await openShortLink(shortToken);
+    else state.bouquet = linkCode ? await decodeBouquet(linkCode) : await getBouquet(pathMatch[1]);
     state.mode = 'recipient';
   } catch (error) {
     state.mode = 'recipient-error';
